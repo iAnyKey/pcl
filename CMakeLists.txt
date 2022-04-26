@@ -1,3 +1,4 @@
+#cmake .. --install-prefix=$pwd/../../pcl_test -DBUILD_visualization=ON -DBUILD_examples=ON -DBUILD_apps=ON
 ### ---[ PCL global CMake
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
@@ -28,9 +29,55 @@ string(TOLOWER ${PROJECT_NAME} PROJECT_NAME_LOWER)
 
 ### ---[ Find universal dependencies
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
+# git
+find_package(Git REQUIRED)
+
+### ---[ Automatically download missing dependencies
+# Automatically download and install necessary dependencies when not found
+# this relies on vcpkg as a package source, which will be installed locally to the repository
+option(DOWNLOAD_MISSING_DEPENDENCIES "Missing dependencies will be downloaded automatically" TRUE)
+set(DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/downloads")
+set(DEPENDENCIES_DIR "${CMAKE_BINARY_DIR}/ext")
+
+if(DOWNLOAD_MISSING_DEPENDENCIES)
+  file(MAKE_DIRECTORY ${DOWNLOAD_DIR})
+  file(MAKE_DIRECTORY ${DEPENDENCIES_DIR})
+  
+  #execute_process(
+  #  COMMAND pwsh -Command mkdir -F "${DOWNLOAD_DIR}"  #FIXME: add shell selector
+  #  COMMAND pwsh -Command mkdir -F "${DEPENDENCIES_DIR}" #FIXME: add shell selector
+  #  COMMAND_ERROR_IS_FATAL ANY
+  #  OUTPUT_QUIET
+  #)
+  set(Z_VCPKG_ROOT_DIR "${DEPENDENCIES_DIR}/vcpkg")
+  if(NOT EXISTS ${Z_VCPKG_ROOT_DIR})
+    execute_process(
+      COMMAND             "${GIT_EXECUTABLE}" clone https://github.com/microsoft/vcpkg
+      WORKING_DIRECTORY   ${DEPENDENCIES_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+  endif()
+  include(${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake)
+  if(NOT EXISTS ${Z_VCPKG_EXECUTABLE})
+    execute_process(
+      COMMAND ${Z_VCPKG_BOOTSTRAP_SCRIPT} -disableMetrics
+      COMMAND_ERROR_IS_FATAL ANY    
+    )
+  endif()
+endif()
 
 # ---[ Include pkgconfig
-include(FindPkgConfig)
+find_package(PkgConfig QUIET)
+if(NOT PKG_CONFIG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: PkgConfig. will be downloaded over vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install pkgconf --triplet=${VCPKG_TARGET_TRIPLET}
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(PkgConfig_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  set(PKG_CONFIG "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/pkgconf")
+  include(FindPkgConfig)
+endif()
 
 if(WIN32 AND NOT MINGW)
   set(CMAKE_DEBUG_POSTFIX "d" CACHE STRING "Add postfix to target for Debug build.")
@@ -273,8 +320,6 @@ if("${is_system_dir}" STREQUAL "-1")
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${LIB_INSTALL_DIR}")
 endif()
 
-### ---[ Find universal dependencies
-
 # OpenMP (optional)
 option(WITH_OPENMP "Build with parallelization using OpenMP" TRUE)
 if(WITH_OPENMP)
@@ -315,11 +360,48 @@ endif()
 find_package(Threads REQUIRED)
 
 # Eigen (required)
-find_package(Eigen 3.1 REQUIRED)
+find_package(Eigen 3.1 QUIET)
+if(NOT Eigen_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: eigen. will be downloaded ...")
+
+  if(NOT EXISTS "${DOWNLOAD_DIR}/eigen")
+    execute_process(
+      COMMAND             "${GIT_EXECUTABLE}" clone https://gitlab.com/libeigen/eigen.git
+      WORKING_DIRECTORY   ${DOWNLOAD_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+  endif()
+  
+  if(NOT EXISTS ${DEPENDENCIES_DIR}/eigen)
+    execute_process(
+      COMMAND pwsh -Command mkdir -F build && cd build && cmake .. --install-prefix=${DEPENDENCIES_DIR}/eigen
+      WORKING_DIRECTORY   "${DOWNLOAD_DIR}/eigen"
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    execute_process(
+      COMMAND pwsh -Command cmake --install .
+      WORKING_DIRECTORY "${DOWNLOAD_DIR}/eigen/build"
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+  endif()
+
+  set(EIGEN_ROOT "${DEPENDENCIES_DIR}/eigen")
+  find_package(Eigen 3.1 REQUIRED)
+endif()
 include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
 
 # FLANN (required)
-find_package(FLANN 1.9.1 REQUIRED)
+find_package(FLANN 1.9.1 QUIET)
+if(NOT FLANN_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: FLANN. will be downloaded over vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install flann --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(FLANN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  find_package(FLANN 1.9.1 REQUIRED)
+endif()
+
 if(NOT (${FLANN_LIBRARY_TYPE} MATCHES ${PCL_FLANN_REQUIRED_TYPE}) AND NOT (${PCL_FLANN_REQUIRED_TYPE} MATCHES "DONTCARE"))
   message(FATAL_ERROR "Flann was selected with ${PCL_FLANN_REQUIRED_TYPE} but found as ${FLANN_LIBRARY_TYPE}")
 endif()
@@ -327,6 +409,15 @@ endif()
 # libusb
 option(WITH_LIBUSB "Build USB RGBD-Camera drivers" TRUE)
 if(WITH_LIBUSB)
+  find_package(libusb QUIET)
+  if(NOT LIBUSB_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: LIBUSB. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install libusb --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(libusb_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  endif()
   include("${PCL_SOURCE_DIR}/cmake/pcl_find_libusb.cmake")
 endif()
 
@@ -339,7 +430,7 @@ PCL_ADD_GRABBER_DEPENDENCY("DSSDK" "DepthSense SDK support")
 PCL_ADD_GRABBER_DEPENDENCY("RSSDK" "RealSense SDK support")
 PCL_ADD_GRABBER_DEPENDENCY("RSSDK2" "RealSense SDK 2.0 (librealsense) support")
 
-# metslib
+#TODO: metslib (https://github.com/coin-or/metslib)
 if(PKG_CONFIG_FOUND)
   pkg_check_modules(METSLIB metslib)
   if(METSLIB_FOUND)
@@ -355,7 +446,17 @@ endif()
 # LibPNG
 option(WITH_PNG "PNG file support" TRUE)
 if(WITH_PNG)
-  find_package(PNG)
+  find_package(PNG QUIET)
+  if(NOT PNG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: PNG. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install libpng --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(PNG_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    find_package(PNG)
+  endif()
+
   if(PNG_FOUND)
     set(HAVE_PNG ON)
     include_directories(SYSTEM "${PNG_INCLUDE_DIR}")
@@ -365,51 +466,162 @@ endif()
 # Qhull
 option(WITH_QHULL "Include convex-hull operations" TRUE)
 if(WITH_QHULL)
-  find_package(Qhull)
+  find_package(Qhull QUIET)
+  if(NOT QHULL_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: QHULL. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install qhull --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(Qhull_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    find_package(Qhull)
+  endif()
+
   if(NOT (${QHULL_LIBRARY_TYPE} MATCHES ${PCL_QHULL_REQUIRED_TYPE}) AND NOT (${PCL_QHULL_REQUIRED_TYPE} MATCHES "DONTCARE"))
     message(FATAL_ERROR "Qhull was selected with ${PCL_QHULL_REQUIRED_TYPE} but found as ${QHULL_LIBRARY_TYPE}")
   endif()
 endif()
 
-# Cuda
+# NVIDIA CUDA
 option(WITH_CUDA "Build NVIDIA-CUDA support" TRUE)
 if(WITH_CUDA)
-  include("${PCL_SOURCE_DIR}/cmake/pcl_find_cuda.cmake")
+  find_package(CUDA 9.0)
+  if(NOT CUDA_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+      message(FATAL_ERROR "Requested compilation option 'WITH_CUDA', but NVIDIA CUDA toolkit was not found in system. Either set 'WITH_CUDA=OFF' or install the toolkit from https://developer.nvidia.com/cuda-downloads.")
+  endif()
 endif()
 
-
-# Reset VTK_FOUND to off
-set(VTK_FOUND OFF)
+# VTK
+set(VTK_FOUND OFF) # Reset VTK_FOUND to off
 # Find VTK - VTK has to be found before Qt, otherwise it can overwrite Qt variables
 option(WITH_VTK "Build VTK-Visualizations" TRUE)
 if(WITH_VTK)
   if(ANDROID)
     message(WARNING "VTK is not supported on Android.")
   else()
+    find_package(VTK QUIET)
+    if(NOT VTK_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    #NOTE: VTK available via vcpkg does not feature all required modules (e.g. it does not have RenderingContextOpenGL2)
+    # thus must be compiled 
+      if(NOT EXISTS "${DOWNLOAD_DIR}/VTK")
+        execute_process(
+          COMMAND             "${GIT_EXECUTABLE}" clone https://github.com/Kitware/VTK
+          WORKING_DIRECTORY   ${DOWNLOAD_DIR}
+          COMMAND_ERROR_IS_FATAL ANY
+        )
+      endif()
+
+      # gather additional dependencies:
+      # FFMPEG
+      find_package(ffmpeg QUIET)
+      if(NOT FFMPEG_FOUND)
+        execute_process(
+          COMMAND ${Z_VCPKG_EXECUTABLE} install ffmpeg --triplet=${VCPKG_TARGET_TRIPLET}
+          COMMAND_ERROR_IS_FATAL ANY
+        )
+      endif()
+
+      # configure
+      make_directory("${DOWNLOAD_DIR}/VTK/build")
+      set(VTK_OPTIONS_MODULE -DVTK_MODULE_ENABLE_VTK_ChartsCore=YES -DVTK_MODULE_ENABLE_VTK_CommonColor=YES -DVTK_MODULE_ENABLE_VTK_CommonComputationalGeometry=YES -DVTK_MODULE_ENABLE_VTK_CommonCore=YES -DVTK_MODULE_ENABLE_VTK_CommonDataModel=YES -DVTK_MODULE_ENABLE_VTK_CommonExecutionModel=YES -DVTK_MODULE_ENABLE_VTK_CommonMath=YES -DVTK_MODULE_ENABLE_VTK_CommonMisc=YES -DVTK_MODULE_ENABLE_VTK_CommonTransforms=YES -DVTK_MODULE_ENABLE_VTK_FiltersCore=YES -DVTK_MODULE_ENABLE_VTK_FiltersExtraction=YES -DVTK_MODULE_ENABLE_VTK_FiltersGeneral=YES -DVTK_MODULE_ENABLE_VTK_FiltersGeometry=YES -DVTK_MODULE_ENABLE_VTK_FiltersModeling=YES -DVTK_MODULE_ENABLE_VTK_FiltersSources=YES -DVTK_MODULE_ENABLE_VTK_ImagingCore=YES -DVTK_MODULE_ENABLE_VTK_ImagingSources=YES -DVTK_MODULE_ENABLE_VTK_InteractionImage=YES -DVTK_MODULE_ENABLE_VTK_InteractionStyle=YES -DVTK_MODULE_ENABLE_VTK_InteractionWidgets=YES -DVTK_MODULE_ENABLE_VTK_IOCore=YES -DVTK_MODULE_ENABLE_VTK_IOGeometry=YES -DVTK_MODULE_ENABLE_VTK_IOImage=YES -DVTK_MODULE_ENABLE_VTK_IOLegacy=YES -DVTK_MODULE_ENABLE_VTK_IOPLY=YES -DVTK_MODULE_ENABLE_VTK_RenderingAnnotation=YES -DVTK_MODULE_ENABLE_VTK_RenderingCore=YES -DVTK_MODULE_ENABLE_VTK_RenderingContext2D=YES -DVTK_MODULE_ENABLE_VTK_RenderingLOD=YES -DVTK_MODULE_ENABLE_VTK_RenderingFreeType=YES -DVTK_MODULE_ENABLE_VTK_ViewsCore=YES -DVTK_MODULE_ENABLE_VTK_ViewsContext2D=YES -DVTK_MODULE_ENABLE_VTK_RenderingOpenGL2=YES -DVTK_MODULE_ENABLE_VTK_RenderingContextOpenGL2=YES)
+      set(VTK_OPTIONS ${VTK_OPTIONS_MODULE} -DVTK_GROUP_ENABLE_Qt=WANT)
+      
+      execute_process(
+        COMMAND
+          ${CMAKE_EXECUTABLE} .. --install-prefix=${DEPENDENCIES_DIR}/VTK
+          ${VTK_OPTIONS}
+          -DFFMPEG_ROOT=${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}
+        WORKING_DIRECTORY   ${DOWNLOAD_DIR}/VTK/build
+      )
+
+      # build
+      execute_process(
+        COMMAND ${CMAKE_EXECUTABLE} --build . #--config Release
+        WORKING_DIRECTORY   ${DOWNLOAD_DIR}/VTK/build
+      )
+
+      #install
+      execute_process(
+        COMMAND ${CMAKE_EXECUTABLE} --install .
+        WORKING_DIRECTORY   ${DOWNLOAD_DIR}/VTK/build
+      )
+      set(VTK_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    endif()
+    set(VTK_ROOT ${DEPENDENCIES_DIR}/VTK)
     include("${PCL_SOURCE_DIR}/cmake/pcl_find_vtk.cmake")
   endif()
 endif()
+
+
 
 # VTK can depend on Qt and search for its required version, so search after so we can overwrite Qt5_FOUND/Qt6_FOUND if the version we require is not found.
 set(WITH_QT "AUTO" CACHE STRING "Build QT Front-End (AUTO|YES|QT6|QT5|NO)")
 set_property(CACHE WITH_QT PROPERTY STRINGS "AUTO" "YES" "QT6" "QT5" "NO")
 if(WITH_QT)
   include("${PCL_SOURCE_DIR}/cmake/pcl_find_qt.cmake")
+  if(NOT QT_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: QT. will be downloaded over vcpkg ...")
+    if(QTX STREQUAL "Qt5")
+      set(QT_PKG_VER "qt5-base")
+    else()
+      set(QT_PKG_VER "qtbase")
+    endif()
+    
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install ${QT_PKG_VER} --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(QT_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    include("${PCL_SOURCE_DIR}/cmake/pcl_find_qt.cmake")
+  endif()
+  
 endif()
 
 #Find PCAP
 option(WITH_PCAP "pcap file capabilities in Velodyne HDL driver" TRUE)
 if(WITH_PCAP)
-  find_package(Pcap)
+  find_package(Pcap QUIET)
+  if(NOT PCAP_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    if(WIN32)
+      set(PCAP_LIBNAME winpcap)
+    else()
+      set(PCAP_LIBNAME libpcap)
+    endif()
+    message(STATUS "Optional dependency not found: PCAP (${PCAP_LIBNAME}). will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install ${PCAP_LIBNAME} --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(PCAP_ROOT_DIR ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib)
+    find_package(Pcap)
+  endif()
 endif()
 
 # OpenGL and GLUT
 option(WITH_OPENGL "Support for OpenGL" TRUE)
 if(WITH_OPENGL)
-  include("${PCL_SOURCE_DIR}/cmake/pcl_find_gl.cmake")
+  find_package(OpenGL QUIET)
+  if(NOT OPENGL_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: OpenGL. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install opengl --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(OpenGL_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    include("${PCL_SOURCE_DIR}/cmake/pcl_find_gl.cmake")
+    endif()
 endif()
 
 # Boost (required)
+find_package(Boost QUIET)
+if(NOT Boost_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Optional dependency not found: Boost. will be downloaded over vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install boost --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(Boost_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+endif()
 include("${PCL_SOURCE_DIR}/cmake/pcl_find_boost.cmake")
 
 ### ---[ Create the config.h file

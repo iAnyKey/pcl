@@ -37,20 +37,27 @@ if(NOT DEFINED Z_VCPKG_EXECUTABLE)
       COMMAND             "${GIT_EXECUTABLE}" clone https://github.com/microsoft/vcpkg "${Z_VCPKG_ROOT_DIR}"
       COMMAND_ERROR_IS_FATAL ANY
     )
+  endif()
 
-    # toolchain definition
-    set(CMAKE_TOOLCHAIN_FILE "${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+  # toolchain definition
+  set(CMAKE_TOOLCHAIN_FILE "${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+  include("${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake")
 
+  # run bootstrap once
+  if(NOT EXISTS ${Z_VCPKG_EXECUTABLE})
     execute_process(
       COMMAND ${Z_VCPKG_BOOTSTRAP_SCRIPT} -disableMetrics
       COMMAND_ERROR_IS_FATAL ANY
     )
+  endif()
 
-    # triplets setup
-    if(WIN32)
-      file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/.dev/docker/windows/*.cmake" "${Z_VCPKG_ROOT_DIR}/triplets")
-      set(VCPKG_TRAGET_TRIPLET "${VCPKG_TRAGET_TRIPLET}-rel")
-    endif()
+  # triplets adjustments for windows
+  if(WIN32)
+    file(
+      COPY        "${CMAKE_CURRENT_SOURCE_DIR}/.dev/docker/windows/*.cmake"
+      DESTINATION "${Z_VCPKG_ROOT_DIR}/triplets"
+    )
+    set(VCPKG_TRAGET_TRIPLET "${VCPKG_TRAGET_TRIPLET}-rel")
   endif()
 endif()
 

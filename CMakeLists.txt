@@ -53,11 +53,22 @@ if(NOT DEFINED Z_VCPKG_EXECUTABLE)
 
   # triplets adjustments for windows
   if(WIN32)
+    file(GLOB ADDITIONAL_TRIPLETS "${CMAKE_CURRENT_SOURCE_DIR}/.dev/docker/windows/*.cmake")
     file(
-      COPY        "${CMAKE_CURRENT_SOURCE_DIR}/.dev/docker/windows/*.cmake"
-      DESTINATION "${Z_VCPKG_ROOT_DIR}/triplets"
+      COPY        ${ADDITIONAL_TRIPLETS}
+      DESTINATION ${Z_VCPKG_ROOT_DIR}/triplets
     )
-    set(VCPKG_TRAGET_TRIPLET "${VCPKG_TRAGET_TRIPLET}-rel")
+    set(VCPKG_TARGET_TRIPLET "${VCPKG_TARGET_TRIPLET}-rel")
+  endif()
+
+  # shell selector workaround for execute process
+  # otherwise there is no possibility to pass an installation request with multiple packages at once to the vcpkg
+  if(WIN32)
+    set(SHELL     "pwsh")
+    set(SHELL_ARG "-Command")
+  else()
+    set(SHELL     "bash")
+    set(SHELL_ARG "-c")
   endif()
 endif()
 
@@ -71,7 +82,7 @@ if(${DOWNLOAD_MISSING_DEPENDENCIES})
   set(_DEP_LIST "boost flann eigen3 qhull vtk[qt,opengl] gtest benchmark")
   message(STATUS "Required dependecies (${_DEP_LIST}) will be downloaded and installed with vcpkg ...")
   execute_process(
-    COMMAND ${Z_VCPKG_EXECUTABLE} install ${_DEP_LIST} --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+    COMMAND ${SHELL} ${SHELL_ARG} "${Z_VCPKG_EXECUTABLE} install ${_DEP_LIST} --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build"
     COMMAND_ERROR_IS_FATAL ANY
   )
 endif()

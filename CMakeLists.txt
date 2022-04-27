@@ -23,11 +23,46 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "")
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "build type default to RelWithDebInfo, set to Release to improve performance" FORCE)
 endif()
 
+# ---[ setup vcpkg toolchain
+# vcpkg defines a set of variables if toolchain setup was successfull
+if(NOT DEFINED Z_VCPKG_EXECUTABLE)
+  set(DEPENDENCIES_DIR "${CMAKE_BINARY_DIR}/ext")
+  set(Z_VCPKG_ROOT_DIR "${DEPENDENCIES_DIR}/vcpkg")
+  if(NOT EXISTS ${Z_VCPKG_ROOT_DIR})
+    execute_process(
+      COMMAND             "${GIT_EXECUTABLE}" clone https://github.com/microsoft/vcpkg "${Z_VCPKG_ROOT_DIR}"
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    execute_process(
+      COMMAND ./bootstrap-vcpkg -disableMetrics
+      WORKING_DIRECTORY ${Z_VCPKG_ROOT_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    # toolchain definition
+    set(CMAKE_TOOLCHAIN_FILE "${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
+    # triplets setup
+    if(WIN32)
+      file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/.dev/docker/windows/*.cmake" "${Z_VCPKG_ROOT_DIR}/triplets")
+      set(VCPKG_TRAGET_TRIPLET "${VCPKG_TRAGET_TRIPLET}-rel")
+    endif()
+  endif()
+endif()
+
 project(PCL VERSION 1.12.1.99)
 string(TOLOWER ${PROJECT_NAME} PROJECT_NAME_LOWER)
 
 ### ---[ Find universal dependencies
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
+option(DOWNLOAD_MISSING_DEPENDENCIES "Missing dependencies will be downloaded automatically" TRUE)
+if(${DOWNLOAD_MISSING_DEPENDENCIES})
+  set(_DEP_LIST "boost flann eigen3 qhull vtk[qt,opengl] gtest benchmark")
+  message(STATUS "Required dependecies (${_DEP_LIST}) will be downloaded and installed with vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install ${_DEP_LIST} --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+endif()
 
 # ---[ Include pkgconfig
 include(FindPkgConfig)

@@ -23,9 +23,13 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "")
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "build type default to RelWithDebInfo, set to Release to improve performance" FORCE)
 endif()
 
+# git
+find_package(Git REQUIRED)
+
 # ---[ setup vcpkg toolchain
 # vcpkg defines a set of variables if toolchain setup was successfull
 if(NOT DEFINED Z_VCPKG_EXECUTABLE)
+  message(STATUS "vcpkg was not found in system and will be installed ...")
   set(DEPENDENCIES_DIR "${CMAKE_BINARY_DIR}/ext")
   set(Z_VCPKG_ROOT_DIR "${DEPENDENCIES_DIR}/vcpkg")
   if(NOT EXISTS ${Z_VCPKG_ROOT_DIR})

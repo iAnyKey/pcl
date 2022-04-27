@@ -58,18 +58,11 @@ if(NOT DEFINED Z_VCPKG_EXECUTABLE)
       COPY        ${ADDITIONAL_TRIPLETS}
       DESTINATION ${Z_VCPKG_ROOT_DIR}/triplets
     )
+    set(VCPKG_TARGET_TRIPLET_STD "${VCPKG_TARGET_TRIPLET}")
     set(VCPKG_TARGET_TRIPLET "${VCPKG_TARGET_TRIPLET}-rel")
   endif()
 
-  # shell selector workaround for execute process
-  # otherwise there is no possibility to pass an installation request with multiple packages at once to the vcpkg
-  if(WIN32)
-    set(SHELL     "pwsh")
-    set(SHELL_ARG "-Command")
-  else()
-    set(SHELL     "bash")
-    set(SHELL_ARG "-c")
-  endif()
+  set(VCPKG_ARGS "--triplet=${VCPKG_TARGET_TRIPLET}" "--clean-after-build")
 endif()
 
 project(PCL VERSION 1.12.1.99)
@@ -78,17 +71,19 @@ string(TOLOWER ${PROJECT_NAME} PROJECT_NAME_LOWER)
 ### ---[ Find universal dependencies
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
 option(DOWNLOAD_MISSING_DEPENDENCIES "Missing dependencies will be downloaded automatically" TRUE)
-if(${DOWNLOAD_MISSING_DEPENDENCIES})
-  set(_DEP_LIST "boost flann eigen3 qhull vtk[qt,opengl] gtest benchmark")
-  message(STATUS "Required dependecies (${_DEP_LIST}) will be downloaded and installed with vcpkg ...")
-  execute_process(
-    COMMAND ${SHELL} ${SHELL_ARG} "${Z_VCPKG_EXECUTABLE} install ${_DEP_LIST} --triplet=${VCPKG_TARGET_TRIPLET} --clean-after-build"
-    COMMAND_ERROR_IS_FATAL ANY
-  )
-endif()
 
 # ---[ Include pkgconfig
-include(FindPkgConfig)
+find_package(PkgConfig QUIET)
+if(NOT PKG_CONFIG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: PkgConfig. will be downloaded over vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install pkgconf ${VCPKG_ARGS}
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(PkgConfig_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  set(PKG_CONFIG_EXECUTABLE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/pkgconf/pkgconf")
+  include(FindPkgConfig)
+endif()
 
 if(WIN32 AND NOT MINGW)
   set(CMAKE_DEBUG_POSTFIX "d" CACHE STRING "Add postfix to target for Debug build.")
@@ -373,18 +368,48 @@ endif()
 find_package(Threads REQUIRED)
 
 # Eigen (required)
-find_package(Eigen 3.1 REQUIRED)
+# In case if eigen3 was installed over vcpkg, in won't find the INCLUDE_DIR
+# Specifying the _ROOT Folder sholud fix the issue
+find_package(Eigen 3.1 QUIET)
+if(NOT Eigen_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: eigen. will be downloaded ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install eigen3 ${VCPKG_ARGS}
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(EIGEN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  find_package(Eigen 3.1 REQUIRED)
+endif()
 include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
 
 # FLANN (required)
-find_package(FLANN 1.9.1 REQUIRED)
+find_package(FLANN 1.9.1 QUIET)
+if(NOT FLANN_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: FLANN. will be downloaded over vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install flann ${VCPKG_ARGS}
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(FLANN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  find_package(FLANN 1.9.1 REQUIRED)
+endif()
 if(NOT (${FLANN_LIBRARY_TYPE} MATCHES ${PCL_FLANN_REQUIRED_TYPE}) AND NOT (${PCL_FLANN_REQUIRED_TYPE} MATCHES "DONTCARE"))
   message(FATAL_ERROR "Flann was selected with ${PCL_FLANN_REQUIRED_TYPE} but found as ${FLANN_LIBRARY_TYPE}")
 endif()
 
 # libusb
-option(WITH_LIBUSB "Build USB RGBD-Camera drivers" TRUE)
+#FIXME: disabled by default because of build issue with shared version of libusb
+option(WITH_LIBUSB "Build USB RGBD-Camera drivers" FALSE)
 if(WITH_LIBUSB)
+  find_package(libusb QUIET)
+  if(NOT LIBUSB_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: LIBUSB. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install libusb ${VCPKG_ARGS} ${VCPKG_TARGET_TRIPLET_STD} "--clean-after-build" #FIXME: libusb does not work in shared mode
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(libusb_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+  endif()
   include("${PCL_SOURCE_DIR}/cmake/pcl_find_libusb.cmake")
 endif()
 
@@ -397,7 +422,8 @@ PCL_ADD_GRABBER_DEPENDENCY("DSSDK" "DepthSense SDK support")
 PCL_ADD_GRABBER_DEPENDENCY("RSSDK" "RealSense SDK support")
 PCL_ADD_GRABBER_DEPENDENCY("RSSDK2" "RealSense SDK 2.0 (librealsense) support")
 
-# metslib
+# metslib 
+#TODO: metslib <https://github.com/coin-or/metslib> is not available over vcpkg 
 if(PKG_CONFIG_FOUND)
   pkg_check_modules(METSLIB metslib)
   if(METSLIB_FOUND)
@@ -413,7 +439,17 @@ endif()
 # LibPNG
 option(WITH_PNG "PNG file support" TRUE)
 if(WITH_PNG)
-  find_package(PNG)
+  find_package(PNG QUIET)
+  if(NOT PNG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: PNG. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install libpng ${VCPKG_ARGS}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(PNG_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    find_package(PNG)
+  endif()
+
   if(PNG_FOUND)
     set(HAVE_PNG ON)
     include_directories(SYSTEM "${PNG_INCLUDE_DIR}")
@@ -423,7 +459,17 @@ endif()
 # Qhull
 option(WITH_QHULL "Include convex-hull operations" TRUE)
 if(WITH_QHULL)
-  find_package(Qhull)
+  find_package(Qhull QUIET)
+  if(NOT QHULL_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    message(STATUS "Optional dependency not found: QHULL. will be downloaded over vcpkg ...")
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install qhull ${VCPKG_ARGS}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(Qhull_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+    find_package(Qhull)
+  endif()
+
   if(NOT (${QHULL_LIBRARY_TYPE} MATCHES ${PCL_QHULL_REQUIRED_TYPE}) AND NOT (${PCL_QHULL_REQUIRED_TYPE} MATCHES "DONTCARE"))
     message(FATAL_ERROR "Qhull was selected with ${PCL_QHULL_REQUIRED_TYPE} but found as ${QHULL_LIBRARY_TYPE}")
   endif()
@@ -444,6 +490,18 @@ if(WITH_VTK)
   if(ANDROID)
     message(WARNING "VTK is not supported on Android.")
   else()
+    find_package(VTK QUIET)
+    if(NOT VTK_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+      message(STATUS "Optional dependency not found: VTK. will be downloaded over vcpkg ...")
+      execute_process(
+        COMMAND ${Z_VCPKG_EXECUTABLE} install vtk[qt,opengl] ${VCPKG_ARGS}
+        COMMAND_ERROR_IS_FATAL ANY
+      )
+      set(VTK_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+      set(OpenGL_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+      set(QT_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+      find_package(Qhull)
+    endif()
     include("${PCL_SOURCE_DIR}/cmake/pcl_find_vtk.cmake")
   endif()
 endif()
@@ -456,19 +514,46 @@ if(WITH_QT)
 endif()
 
 #Find PCAP
-option(WITH_PCAP "pcap file capabilities in Velodyne HDL driver" TRUE)
+#FIXME: disabled by default because of issue with shared build of pcap
+option(WITH_PCAP "pcap file capabilities in Velodyne HDL driver" false)
 if(WITH_PCAP)
-  find_package(Pcap)
+  find_package(Pcap QUIET)
+  if(NOT PCAP_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+    if(WIN32)
+      set(PCAP_LIBNAME winpcap)
+    else()
+      set(PCAP_LIBNAME libpcap)
+    endif()
+    message(STATUS "Optional dependency not found: PCAP (${PCAP_LIBNAME}). will be downloaded over vcpkg ...") #FIXME: pcap does not work in shared mode
+    execute_process(
+      COMMAND ${Z_VCPKG_EXECUTABLE} install ${PCAP_LIBNAME} ${VCPKG_ARGS}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    set(PCAP_ROOT_DIR ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib)
+    find_package(Pcap)
+  endif()
 endif()
 
 # OpenGL and GLUT
+#TODO: GLUT
 option(WITH_OPENGL "Support for OpenGL" TRUE)
 if(WITH_OPENGL)
   include("${PCL_SOURCE_DIR}/cmake/pcl_find_gl.cmake")
 endif()
 
 # Boost (required)
+if(NOT Boost_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+  message(STATUS "Mandatory dependency not found: Boost. will be downloaded over vcpkg ...")
+  execute_process(
+    COMMAND ${Z_VCPKG_EXECUTABLE} install boost ${VCPKG_ARGS}
+    COMMAND_ERROR_IS_FATAL ANY
+  )
+  set(Boost_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+endif()
 include("${PCL_SOURCE_DIR}/cmake/pcl_find_boost.cmake")
+
+#TODO: GTEST
+#TODO: benchmark
 
 ### ---[ Create the config.h file
 set(pcl_config_h_in "${CMAKE_CURRENT_SOURCE_DIR}/pcl_config.h.in")

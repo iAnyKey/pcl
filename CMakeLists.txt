@@ -37,13 +37,14 @@ if(NOT DEFINED Z_VCPKG_EXECUTABLE)
       COMMAND             "${GIT_EXECUTABLE}" clone https://github.com/microsoft/vcpkg "${Z_VCPKG_ROOT_DIR}"
       COMMAND_ERROR_IS_FATAL ANY
     )
-    execute_process(
-      COMMAND ./bootstrap-vcpkg -disableMetrics
-      WORKING_DIRECTORY ${Z_VCPKG_ROOT_DIR}
-      COMMAND_ERROR_IS_FATAL ANY
-    )
+
     # toolchain definition
     set(CMAKE_TOOLCHAIN_FILE "${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
+    execute_process(
+      COMMAND ${Z_VCPKG_BOOTSTRAP_SCRIPT} -disableMetrics
+      COMMAND_ERROR_IS_FATAL ANY
+    )
 
     # triplets setup
     if(WIN32)

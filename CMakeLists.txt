@@ -535,7 +535,6 @@ if(WITH_PCAP)
 endif()
 
 # OpenGL and GLUT
-#TODO: GLUT
 option(WITH_OPENGL "Support for OpenGL" TRUE)
 if(WITH_OPENGL)
   include("${PCL_SOURCE_DIR}/cmake/pcl_find_gl.cmake")
@@ -551,9 +550,6 @@ if(NOT Boost_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
   set(Boost_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
 endif()
 include("${PCL_SOURCE_DIR}/cmake/pcl_find_boost.cmake")
-
-#TODO: GTEST
-#TODO: benchmark
 
 ### ---[ Create the config.h file
 set(pcl_config_h_in "${CMAKE_CURRENT_SOURCE_DIR}/pcl_config.h.in")

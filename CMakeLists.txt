@@ -196,7 +196,7 @@ if(CMAKE_COMPILER_IS_MSVC)
   add_definitions("-DBOOST_ALL_NO_LIB -D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX -DPCL_ONLY_CORE_POINT_TYPES ${SSE_DEFINITIONS}")
   
   if("${CMAKE_CXX_FLAGS}" STREQUAL "${CMAKE_CXX_FLAGS_DEFAULT}")
-    string(APPEND CMAKE_CXX_FLAGS " /fp:precise /wd4800 /wd4521 /wd4251 /wd4275 /wd4305 /wd4355 ${SSE_FLAGS} ${AVX_FLAGS} /bigobj")
+    string(APPEND CMAKE_CXX_FLAGS " /fp:precise ${SSE_FLAGS} ${AVX_FLAGS} /bigobj")
 
     # Add extra code generation/link optimizations
     if(CMAKE_MSVC_CODE_LINK_OPTIMIZATION AND (NOT BUILD_CUDA) AND (NOT BUILD_GPU))
@@ -210,7 +210,21 @@ if(CMAKE_COMPILER_IS_MSVC)
     endif()
     # /MANIFEST:NO") # please, don't disable manifest generation, otherwise crash at start for vs2008
 
+    # Disable some warnings
+    string(APPEND CMAKE_CXX_FLAGS " /wd4800 /wd4521 /wd4251 /wd4275 /wd4305 /wd4355")
+
+    # Enable warnings, which are disabled by default (see https://learn.microsoft.com/de-de/cpp/preprocessor/compiler-warnings-that-are-off-by-default)
+    string(APPEND CMAKE_CXX_FLAGS " /w34265")
+
     if(PCL_WARNINGS_ARE_ERRORS)
+      # MSVC supports external includes only since Visual Studio 2019 version 16.10.0.
+      # CMake supports external includes since 3.22.0 using the Ninja generator or NMake files (see https://gitlab.kitware.com/cmake/cmake/-/merge_requests/4766)
+      # CMake supports external includes for Visual Studio also since 3.24.0 (see https://gitlab.kitware.com/cmake/cmake/-/merge_requests/7238)
+      if(CMAKE_C_COMPILER_VERSION VERSION_LESS "19.29.30036.3" OR CMAKE_VERSION VERSION_LESS 3.22.0 OR (CMAKE_VERSION VERSION_LESS 3.24.0 AND CMAKE_GENERATOR MATCHES "Visual Studio"))
+        message(WARNING "With the used combination of compiler and CMake version it is not recommended to activate PCL_WARNINGS_ARE_ERRORS, "
+                        "because also warnings from 3rd party components are marked as errors. It is recommended to upgrade to "
+                        "Visual Studio 2019 version 16.10.0 and CMake 3.24.0 (or CMake 3.22.0 if using Ninja or NMake files).")
+      endif()
       string(APPEND CMAKE_CXX_FLAGS " /WX")
     endif()
 
@@ -336,29 +350,14 @@ endif()
 if(OpenMP_FOUND)
   string(APPEND CMAKE_C_FLAGS " ${OpenMP_C_FLAGS}")
   string(APPEND CMAKE_CXX_FLAGS " ${OpenMP_CXX_FLAGS}")
-  if(${CMAKE_VERSION} VERSION_LESS "3.7")
-    message(STATUS "Found OpenMP")
-  else()
-    # We could use OpenMP_CXX_VERSION starting from CMake 3.9, but this value is only available on first run of CMake (see https://gitlab.kitware.com/cmake/cmake/issues/19150),
-    # so we use always OpenMP_CXX_SPEC_DATE, which is available since CMake 3.7.
-    message(STATUS "Found OpenMP, spec date ${OpenMP_CXX_SPEC_DATE}")
-  endif()
-  if(MSVC)
-    if(MSVC_VERSION EQUAL 1900)
-      set(OPENMP_DLL VCOMP140)
-    elseif(MSVC_VERSION MATCHES "^191[0-9]$")
-      set(OPENMP_DLL VCOMP140)
-    elseif(MSVC_VERSION MATCHES "^192[0-9]$")
-      set(OPENMP_DLL VCOMP140)
-    elseif(MSVC_VERSION MATCHES "^193[0-9]$")
-      set(OPENMP_DLL VCOMP140)
-    endif()
-    if(OPENMP_DLL)
-      string(APPEND CMAKE_SHARED_LINKER_FLAGS_DEBUG " /DELAYLOAD:${OPENMP_DLL}D.dll")
-      string(APPEND CMAKE_SHARED_LINKER_FLAGS_RELEASE " /DELAYLOAD:${OPENMP_DLL}.dll")
-    else()
-      message(WARNING "Delay loading flag for OpenMP DLL is invalid.")
-    endif()
+
+  # We could use OpenMP_CXX_VERSION starting from CMake 3.9, but this value is only available on first run of CMake (see https://gitlab.kitware.com/cmake/cmake/issues/19150),
+  # so we use always OpenMP_CXX_SPEC_DATE, which is available since CMake 3.7.
+  message(STATUS "Found OpenMP, spec date ${OpenMP_CXX_SPEC_DATE}")
+
+  if((MSVC_VERSION EQUAL 1900) OR (MSVC_VERSION MATCHES "^191[0-9]$"))
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS_DEBUG " /DELAYLOAD:VCOMP140D.dll")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS_RELEASE " /DELAYLOAD:VCOMP140.dll")
   endif()
 else()
   message(STATUS "Not found OpenMP")
@@ -368,9 +367,10 @@ endif()
 find_package(Threads REQUIRED)
 
 # Eigen (required)
+find_package(Eigen 3.3 REQUIRED)
 # In case if eigen3 was installed over vcpkg, in won't find the INCLUDE_DIR
 # Specifying the _ROOT Folder sholud fix the issue
-find_package(Eigen 3.1 QUIET)
+find_package(Eigen 3.3 QUIET)
 if(NOT Eigen_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
   message(STATUS "Mandatory dependency not found: eigen. will be downloaded ...")
   execute_process(
@@ -378,7 +378,7 @@ if(NOT Eigen_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
     COMMAND_ERROR_IS_FATAL ANY
   )
   set(EIGEN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-  find_package(Eigen 3.1 REQUIRED)
+  find_package(Eigen 3.3 REQUIRED)
 endif()
 include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
 

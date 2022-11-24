@@ -63,10 +63,10 @@ pcl::MovingLeastSquares<PointInT, PointOutT>::process (PointCloudOut &output)
   // Reset or initialize the collection of indices
   corresponding_input_indices_.reset (new PointIndices);
 
+  normals_.reset (new NormalCloud); // always init this since it is dereferenced in performUpsampling
   // Check if normals have to be computed/saved
   if (compute_normals_)
   {
-    normals_.reset (new NormalCloud);
     // Copy the header
     normals_->header = input_->header;
     // Clear the fields in case the method exits before computation
@@ -407,7 +407,7 @@ pcl::MovingLeastSquares<PointInT, PointOutT>::performUpsampling (PointCloudOut &
     for (int iteration = 0; iteration < dilation_iteration_num_; ++iteration)
       voxel_grid.dilate ();
 
-    for (typename MLSVoxelGrid::HashMap::iterator m_it = voxel_grid.voxel_grid_.begin (); m_it != voxel_grid.voxel_grid_.end (); ++m_it)
+    for (auto m_it = voxel_grid.voxel_grid_.begin (); m_it != voxel_grid.voxel_grid_.end (); ++m_it)
     {
       // Get 3D position of point
       Eigen::Vector3f pos;
@@ -749,7 +749,7 @@ pcl::MLSResult::computeMLSSurface (const pcl::PointCloud<PointT> &cloud,
     if (num_neighbors >= nr_coeff)
     {
       if (!weight_func)
-        weight_func = [=] (const double sq_dist) { return this->computeMLSWeight (sq_dist, search_radius * search_radius); };
+        weight_func = [this, search_radius] (const double sq_dist) { return this->computeMLSWeight (sq_dist, search_radius * search_radius); };
 
       // Allocate matrices and vectors to hold the data used for the polynomial fit
       Eigen::VectorXd weight_vec (num_neighbors);
@@ -835,7 +835,7 @@ template <typename PointInT, typename PointOutT> void
 pcl::MovingLeastSquares<PointInT, PointOutT>::MLSVoxelGrid::dilate ()
 {
   HashMap new_voxel_grid = voxel_grid_;
-  for (typename MLSVoxelGrid::HashMap::iterator m_it = voxel_grid_.begin (); m_it != voxel_grid_.end (); ++m_it)
+  for (auto m_it = voxel_grid_.begin (); m_it != voxel_grid_.end (); ++m_it)
   {
     Eigen::Vector3i index;
     getIndexIn3D (m_it->first, index);

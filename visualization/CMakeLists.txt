@@ -12,7 +12,7 @@ else()
 endif()
 
 PCL_SUBSYS_OPTION(build "${SUBSYS_NAME}" "${SUBSYS_DESC}" ${DEFAULT} "${REASON}")
-PCL_SUBSYS_DEPEND(build "${SUBSYS_NAME}" DEPS ${SUBSYS_DEPS} EXT_DEPS vtk OPT_DEPS openni openni2 ensenso davidSDK dssdk rssdk)
+PCL_SUBSYS_DEPEND(build NAME ${SUBSYS_NAME} DEPS ${SUBSYS_DEPS} EXT_DEPS vtk OPT_DEPS openni openni2 ensenso davidSDK dssdk rssdk)
 
 if(ANDROID)
   set(build FALSE)
@@ -56,17 +56,8 @@ set(srcs
   src/pcl_plotter.cpp
 )
 
-if(VTK_RENDERING_BACKEND_OPENGL_VERSION VERSION_LESS 2)
-  list(APPEND srcs
-    "src/vtk/vtkVertexBufferObject.cxx"
-    "src/vtk/vtkVertexBufferObjectMapper.cxx"
-  )
-
-  # Code in this module may use deprecated declarations when using OpenGLv1
-  # Add the GCC exclusive rules for -Werror only for OpenGLv1 compile to avoid build interruption
-  if(CMAKE_COMPILER_IS_GNUCXX)
-    add_compile_options("-Wno-error=deprecated-declarations")
-  endif()
+if(${VTK_VERSION} VERSION_GREATER_EQUAL 9.0 AND UNIX AND NOT ANDROID AND NOT APPLE AND NOT APPLE_IOS)
+  list(APPEND srcs "src/vtk/vtkFixedXRenderWindowInteractor.cxx")
 endif()
 
 if(NOT (${VTK_VERSION} VERSION_LESS 9.0))
@@ -134,11 +125,8 @@ set(vtk_incs
   "include/pcl/${SUBSYS_NAME}/vtk/pcl_vtk_compatibility.h"
 )
 
-if(VTK_RENDERING_BACKEND_OPENGL_VERSION VERSION_LESS 2)
-  list(APPEND vtk_incs
-    "include/pcl/${SUBSYS_NAME}/vtk/vtkVertexBufferObject.h"
-    "include/pcl/${SUBSYS_NAME}/vtk/vtkVertexBufferObjectMapper.h"
-  )
+if(${VTK_VERSION} VERSION_GREATER_EQUAL 9.0 AND UNIX AND NOT ANDROID AND NOT APPLE AND NOT APPLE_IOS)
+  list(APPEND vtk_incs "include/pcl/${SUBSYS_NAME}/vtk/vtkFixedXRenderWindowInteractor.h")
 endif()
 
 if(${VTK_VERSION} VERSION_GREATER_EQUAL 9.0)

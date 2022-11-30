@@ -26,22 +26,27 @@ endif()
 # git
 find_package(Git REQUIRED)
 
-# ---[ setup vcpkg toolchain
+# ---[ setup vcpkg toolchain ]---
 # vcpkg defines a set of variables if toolchain setup was successfull
 if(NOT DEFINED Z_VCPKG_EXECUTABLE)
-  message(STATUS "vcpkg was not found in system and will be installed ...")
-  set(DEPENDENCIES_DIR "${CMAKE_BINARY_DIR}/ext")
-  set(Z_VCPKG_ROOT_DIR "${DEPENDENCIES_DIR}/vcpkg")
+  set(Z_VCPKG_ROOT_DIR "${GPTOOLBOX_MEX_EXTERNAL}/vcpkg")
+  message(STATUS "vcpkg was not found in system and will be installed to ${Z_VCPKG_ROOT_DIR} ...")
   if(NOT EXISTS ${Z_VCPKG_ROOT_DIR})
     execute_process(
       COMMAND             "${GIT_EXECUTABLE}" clone https://github.com/microsoft/vcpkg "${Z_VCPKG_ROOT_DIR}"
       COMMAND_ERROR_IS_FATAL ANY
     )
   endif()
+  
+  # CMAKE_EXECUTABLE_SUFFIX is not yet defined
+  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+    set(Z_VCPKG_EXECUTABLE "${Z_VCPKG_ROOT_DIR}/vcpkg.exe")
+    set(Z_VCPKG_BOOTSTRAP_SCRIPT "${Z_VCPKG_ROOT_DIR}/bootstrap-vcpkg.bat")
+  else()
+    set(Z_VCPKG_EXECUTABLE "${Z_VCPKG_ROOT_DIR}/vcpkg")
+    set(Z_VCPKG_BOOTSTRAP_SCRIPT "${Z_VCPKG_ROOT_DIR}/bootstrap-vcpkg.sh")
+  endif()
 
-  # toolchain definition
-  set(CMAKE_TOOLCHAIN_FILE "${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
-  include("${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake")
 
   # run bootstrap once
   if(NOT EXISTS ${Z_VCPKG_EXECUTABLE})
@@ -51,19 +56,11 @@ if(NOT DEFINED Z_VCPKG_EXECUTABLE)
     )
   endif()
 
-  # triplets adjustments for windows
-  if(WIN32)
-    file(GLOB ADDITIONAL_TRIPLETS "${CMAKE_CURRENT_SOURCE_DIR}/.dev/docker/windows/*.cmake")
-    file(
-      COPY        ${ADDITIONAL_TRIPLETS}
-      DESTINATION ${Z_VCPKG_ROOT_DIR}/triplets
-    )
-    set(VCPKG_TARGET_TRIPLET_STD "${VCPKG_TARGET_TRIPLET}")
-    set(VCPKG_TARGET_TRIPLET "${VCPKG_TARGET_TRIPLET}-rel")
-  endif()
-
-  set(VCPKG_ARGS "--triplet=${VCPKG_TARGET_TRIPLET}" "--clean-after-build")
-endif()
+  set(VCPKG_ARGS "--clean-after-build")
+endif() #vcpkg
+# toolchain definition
+set(CMAKE_TOOLCHAIN_FILE "${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+include("${Z_VCPKG_ROOT_DIR}/scripts/buildsystems/vcpkg.cmake")
 
 project(PCL VERSION 1.12.1.99)
 string(TOLOWER ${PROJECT_NAME} PROJECT_NAME_LOWER)
@@ -74,16 +71,16 @@ option(DOWNLOAD_MISSING_DEPENDENCIES "Missing dependencies will be downloaded au
 
 # ---[ Include pkgconfig
 find_package(PkgConfig QUIET)
-if(NOT PKG_CONFIG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-  message(STATUS "Mandatory dependency not found: PkgConfig. will be downloaded over vcpkg ...")
-  execute_process(
-    COMMAND ${Z_VCPKG_EXECUTABLE} install pkgconf ${VCPKG_ARGS}
-    COMMAND_ERROR_IS_FATAL ANY
-  )
-  set(PkgConfig_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-  set(PKG_CONFIG_EXECUTABLE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/pkgconf/pkgconf")
+#if(NOT PKG_CONFIG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#  message(STATUS "Mandatory dependency not found: PkgConfig. will be downloaded over vcpkg ...")
+#  execute_process(
+#    COMMAND ${Z_VCPKG_EXECUTABLE} install pkgconf ${VCPKG_ARGS}
+#    COMMAND_ERROR_IS_FATAL ANY
+#  )
+#  set(PkgConfig_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#  set(PKG_CONFIG_EXECUTABLE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/pkgconf/pkgconf")
   include(FindPkgConfig)
-endif()
+#endif()
 
 if(WIN32 AND NOT MINGW)
   set(CMAKE_DEBUG_POSTFIX "d" CACHE STRING "Add postfix to target for Debug build.")
@@ -370,29 +367,30 @@ find_package(Threads REQUIRED)
 find_package(Eigen 3.3 REQUIRED)
 # In case if eigen3 was installed over vcpkg, in won't find the INCLUDE_DIR
 # Specifying the _ROOT Folder sholud fix the issue
-find_package(Eigen 3.3 QUIET)
-if(NOT Eigen_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-  message(STATUS "Mandatory dependency not found: eigen. will be downloaded ...")
-  execute_process(
-    COMMAND ${Z_VCPKG_EXECUTABLE} install eigen3 ${VCPKG_ARGS}
-    COMMAND_ERROR_IS_FATAL ANY
-  )
-  set(EIGEN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-  find_package(Eigen 3.3 REQUIRED)
-endif()
-include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
+#find_package(Eigen 3.3 QUIET)
+#if(NOT Eigen_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#  message(STATUS "Mandatory dependency not found: eigen. will be downloaded ...")
+#  execute_process(
+#    COMMAND ${Z_VCPKG_EXECUTABLE} install eigen3 ${VCPKG_ARGS}
+#    COMMAND_ERROR_IS_FATAL ANY
+#  )
+#  set(EIGEN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#  find_package(Eigen 3.3 REQUIRED)
+#endif()
+#include_directories(SYSTEM ${EIGEN_INCLUDE_DIRS})
 
 # FLANN (required)
-find_package(FLANN 1.9.1 QUIET)
-if(NOT FLANN_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-  message(STATUS "Mandatory dependency not found: FLANN. will be downloaded over vcpkg ...")
-  execute_process(
-    COMMAND ${Z_VCPKG_EXECUTABLE} install flann ${VCPKG_ARGS}
-    COMMAND_ERROR_IS_FATAL ANY
-  )
-  set(FLANN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-  find_package(FLANN 1.9.1 REQUIRED)
-endif()
+find_package(FLANN 1.9.1 REQUIRED)
+#find_package(FLANN 1.9.1 QUIET)
+#if(NOT FLANN_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#  message(STATUS "Mandatory dependency not found: FLANN. will be downloaded over vcpkg ...")
+#  execute_process(
+#    COMMAND ${Z_VCPKG_EXECUTABLE} install flann ${VCPKG_ARGS}
+#    COMMAND_ERROR_IS_FATAL ANY
+#  )
+#  set(FLANN_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#  find_package(FLANN 1.9.1 REQUIRED)
+#endif()
 if(NOT (${FLANN_LIBRARY_TYPE} MATCHES ${PCL_FLANN_REQUIRED_TYPE}) AND NOT (${PCL_FLANN_REQUIRED_TYPE} MATCHES "DONTCARE"))
   message(FATAL_ERROR "Flann was selected with ${PCL_FLANN_REQUIRED_TYPE} but found as ${FLANN_LIBRARY_TYPE}")
 endif()
@@ -439,16 +437,17 @@ endif()
 # LibPNG
 option(WITH_PNG "PNG file support" TRUE)
 if(WITH_PNG)
-  find_package(PNG QUIET)
-  if(NOT PNG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-    message(STATUS "Optional dependency not found: PNG. will be downloaded over vcpkg ...")
-    execute_process(
-      COMMAND ${Z_VCPKG_EXECUTABLE} install libpng ${VCPKG_ARGS}
-      COMMAND_ERROR_IS_FATAL ANY
-    )
-    set(PNG_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#  find_package(PNG REQUIRED)
+#  find_package(PNG QUIET)
+#  if(NOT PNG_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#    message(STATUS "Optional dependency not found: PNG. will be downloaded over vcpkg ...")
+#    execute_process(
+#      COMMAND ${Z_VCPKG_EXECUTABLE} install libpng ${VCPKG_ARGS}
+#      COMMAND_ERROR_IS_FATAL ANY
+#    )
+#    set(PNG_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
     find_package(PNG)
-  endif()
+ # endif()
 
   if(PNG_FOUND)
     set(HAVE_PNG ON)
@@ -459,16 +458,16 @@ endif()
 # Qhull
 option(WITH_QHULL "Include convex-hull operations" TRUE)
 if(WITH_QHULL)
-  find_package(Qhull QUIET)
-  if(NOT QHULL_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-    message(STATUS "Optional dependency not found: QHULL. will be downloaded over vcpkg ...")
-    execute_process(
-      COMMAND ${Z_VCPKG_EXECUTABLE} install qhull ${VCPKG_ARGS}
-      COMMAND_ERROR_IS_FATAL ANY
-    )
-    set(Qhull_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#  find_package(Qhull QUIET)
+#  if(NOT QHULL_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#    message(STATUS "Optional dependency not found: QHULL. will be downloaded over vcpkg ...")
+#    execute_process(
+#      COMMAND ${Z_VCPKG_EXECUTABLE} install qhull ${VCPKG_ARGS}
+#      COMMAND_ERROR_IS_FATAL ANY
+#    )
+#    set(Qhull_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
     find_package(Qhull)
-  endif()
+ # endif()
 
   if(NOT (${QHULL_LIBRARY_TYPE} MATCHES ${PCL_QHULL_REQUIRED_TYPE}) AND NOT (${PCL_QHULL_REQUIRED_TYPE} MATCHES "DONTCARE"))
     message(FATAL_ERROR "Qhull was selected with ${PCL_QHULL_REQUIRED_TYPE} but found as ${QHULL_LIBRARY_TYPE}")
@@ -490,18 +489,19 @@ if(WITH_VTK)
   if(ANDROID)
     message(WARNING "VTK is not supported on Android.")
   else()
-    find_package(VTK QUIET)
-    if(NOT VTK_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-      message(STATUS "Optional dependency not found: VTK. will be downloaded over vcpkg ...")
-      execute_process(
-        COMMAND ${Z_VCPKG_EXECUTABLE} install vtk[qt,opengl] ${VCPKG_ARGS}
-        COMMAND_ERROR_IS_FATAL ANY
-      )
-      set(VTK_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-      set(OpenGL_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-      set(QT_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-      find_package(Qhull)
-    endif()
+    find_package(VTK)
+#    find_package(VTK QUIET)
+#    if(NOT VTK_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#      message(STATUS "Optional dependency not found: VTK. will be downloaded over vcpkg ...")
+#      execute_process(
+#        COMMAND ${Z_VCPKG_EXECUTABLE} install vtk[qt,opengl] ${VCPKG_ARGS}
+#        COMMAND_ERROR_IS_FATAL ANY
+#      )
+#      set(VTK_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#      set(OpenGL_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#      set(QT_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#      find_package(Qhull)
+#    endif()
     include("${PCL_SOURCE_DIR}/cmake/pcl_find_vtk.cmake")
   endif()
 endif()
@@ -541,14 +541,14 @@ if(WITH_OPENGL)
 endif()
 
 # Boost (required)
-if(NOT Boost_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
-  message(STATUS "Mandatory dependency not found: Boost. will be downloaded over vcpkg ...")
-  execute_process(
-    COMMAND ${Z_VCPKG_EXECUTABLE} install boost ${VCPKG_ARGS}
-    COMMAND_ERROR_IS_FATAL ANY
-  )
-  set(Boost_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
-endif()
+#if(NOT Boost_FOUND AND DOWNLOAD_MISSING_DEPENDENCIES)
+#  message(STATUS "Mandatory dependency not found: Boost. will be downloaded over vcpkg ...")
+#  execute_process(
+#    COMMAND ${Z_VCPKG_EXECUTABLE} install boost ${VCPKG_ARGS}
+#    COMMAND_ERROR_IS_FATAL ANY
+#  )
+#  set(Boost_ROOT ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET})
+#endif()
 include("${PCL_SOURCE_DIR}/cmake/pcl_find_boost.cmake")
 
 ### ---[ Create the config.h file
@@ -582,6 +582,8 @@ if(CPACK_GENERATOR)
   set(CPACK_PROJECT_CONFIG_FILE "${PCL_CPACK_CFG_FILE}")
   include(CPack)
 endif()
+
+
 ### ---[ Make a pretty picture of the dependency graph
 include("${PCL_SOURCE_DIR}/cmake/dep_graph.cmake")
 MAKE_DEP_GRAPH()
@@ -589,3 +591,5 @@ MAKE_DEP_GRAPH()
 ### ---[ Finish up
 PCL_WRITE_STATUS_REPORT()
 PCL_RESET_MAPS()
+
+
